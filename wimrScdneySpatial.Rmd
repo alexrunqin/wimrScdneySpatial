@@ -1,0 +1,116 @@
+---
+title: "Performing a spatial analysis of multiplexed tissue imaging data."
+params:
+  test: FALSE
+author:
+- name: Alexander Nicholls
+  affiliation:  
+  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
+- name: Nicholas Robertson
+  affiliation:
+  - School of Mathematics and Statistics, University of Sydney, Australia
+- name: Alex Qin
+  affiliation:
+  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
+  - School of Mathematics and Statistics, University of Sydney, Australia
+- name: Nicholas Canete
+  affiliation:  
+  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
+- name: Elijah Willie
+  affiliation:  
+  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
+  - School of Mathematics and Statistics, University of Sydney, Australia
+- name: Ellis Patrick
+  affiliation:
+  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
+  - School of Mathematics and Statistics, University of Sydney, Australia
+date: 27 July, 2022
+vignette: >
+  %\VignetteIndexEntry{"Introduction to a spicy workflow"}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+output: 
+  BiocStyle::html_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(BiocStyle)
+```
+
+```{r, eval=FALSE}
+if (!require("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+
+BiocManager::install("spicyWorkflow")
+```
+
+```{r, message=FALSE, error=FALSE}
+library(cytomapper)
+library(dplyr)
+library(ggplot2)
+library(simpleSeg)
+library(FuseSOM)
+library(ggpubr)
+library(scater)
+library(spicyR)
+library(ClassifyR)
+library(lisaClust)
+library(Statial)
+library(tidySingleCellExperiment)
+library(SpatialExperiment)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
