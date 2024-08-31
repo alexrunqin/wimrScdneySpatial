@@ -1,94 +1,324 @@
 ---
-title: "Performing a spatial analysis of multiplexed tissue imaging data."
-params:
-  test: FALSE
-author:
-- name: Alexander Nicholls
-  affiliation:  
-  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
-- name: Nicholas Robertson
-  affiliation:
-  - School of Mathematics and Statistics, University of Sydney, Australia
-- name: Alex Qin
-  affiliation:
-  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
-  - School of Mathematics and Statistics, University of Sydney, Australia
-- name: Nicholas Canete
-  affiliation:  
-  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
-- name: Elijah Willie
-  affiliation:  
-  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
-  - School of Mathematics and Statistics, University of Sydney, Australia
-- name: Ellis Patrick
-  affiliation:
-  - &WIMR Westmead Institute for Medical Research, University of Sydney, Australia
-  - School of Mathematics and Statistics, University of Sydney, Australia
-date: 27 July, 2022
-vignette: >
-  %\VignetteIndexEntry{"Introduction to a spicy workflow"}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
-output: 
-  BiocStyle::html_document:
-    toc: yes
-    toc_float: yes
+title: "WIMR spicyWorkflow Workshop"
+author: "Alex Qin"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    embed-resources: true
+    theme: flatly
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: show
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
-```{r setup, include=FALSE, message=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
-library(BiocStyle)
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+
+chooseCRANmirror(graphics=FALSE, ind=1)
 ```
+
+Welcome to a workshop on analysing spatial data! The downstream analyses
+used in this workshop is in theory applicable to any format of data
+where we have a matrix of genes by cells, along with their x-y
+coordinates, whether that's from technologies such as PhenoCycler, IMC,
+Xenium, or MERRFISH.
+
+In this workshop, we'll be working through a head and neck squamous cell
+carcinoma dataset provided by Angela Ferguson, and published in
+[Clinical Cancer
+Research](https://doi.org/10.1158/1078-0432.CCR-22-1332). We will aim to
+cover:
+
+-   Introduction to imaging data and how to store it in R
+
+-   How to segment cells from your data in R
+
+-   How to annotate the cells you have segmented out
+
+-   What kind of insights can I gain from my spatial data?
+
+This workshop is suited for a beginner audience, however it is assumed
+that you have an understanding of the basic science that underpins
+spatial transcriptomics/proteomics data (i.e I know what a gene/protein
+is, and why disease might cause a change in gene/protein expression).
+
+This workshop will take you all the way through from images in the form
+of a TIFF file, all the way to getting nice plots and visualisations
+from this data.
+
+# Getting started {.tabset .tabset-fade}
+
+## Installing packages
+
+Bioinformatics packages are typically stored on bioconductor. When
+installing an R package from bioconductor, we need to first install
+`BiocManager` (a library that allows us to access bioconductor within R)
 
 ```{r, eval=FALSE}
-if (!require("BiocManager", quietly = TRUE)) {
-  install.packages("BiocManager")
-}
-
-BiocManager::install("spicyWorkflow")
+# To install biocmanager
+install.packages("BiocManager")
 ```
 
-```{r, message=FALSE, error=FALSE}
+I've also provided some code for installing all the packages that we
+will be using in this workshop. This will take some time to install, and
+you may encounter errors when you try to run this code, depending on
+what packages you may already have installed.
+
+```{r}
+BiocManager::install(c("cytomapper", "scater", "tidySingleCellExperiment", "SpatialExperiment", "simpleSeg", "FuseSOM", "spicyR", "lisaClust", "tidySingleCellExperiment", "SpatialExperiment"))
+```
+
+### Prerequisite packages
+
+As a brief introduction to the packages, the first packages we will want
+to install are `cytomapper`, `scater`, `tidySingleCellExperiment` and
+`SpatialExperiment`. These are a couple prerequisite packages not
+developed by our group, but are super useful in helping us visualise and
+load in our imaging data. `dplyr` and `ggplot2` are standard R packages
+for dealing with data.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
 library(cytomapper)
-library(dplyr)
-library(ggplot2)
-library(simpleSeg)
-library(FuseSOM)
-library(ggpubr)
 library(scater)
-library(spicyR)
-library(ClassifyR)
-library(lisaClust)
-library(Statial)
 library(tidySingleCellExperiment)
 library(SpatialExperiment)
+
+library(dplyr)
+library(ggplot2)
+```
+
+### Our packages.
+
+In this workshop, we'll be introducing 4 packages from spicyWorkflow.
+These are:
+
+-   [simpleSeg](https://www.bioconductor.org/packages/release/bioc/vignettes/simpleSeg/inst/doc/simpleSeg.html):
+    For segmenting and normalising your cells
+
+-   [FuseSOM](https://www.bioconductor.org/packages/release/bioc/vignettes/FuseSOM/inst/doc/Introduction.html):
+    For clustering (and self-annotating) your cells
+
+-   [spicyR](https://bioconductor.org/packages/release/bioc/vignettes/spicyR/inst/doc/spicyR.html):
+    For identifying differential localisation of cell types between
+    conditions.
+
+-   [lisaClust](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
+    For identifying consistent spatial organisation (regions) of cell
+    types.
+
+```{r, message=FALSE, error=FALSE, warning=FALSE}
+library(simpleSeg)
+library(FuseSOM)
+library(spicyR)
+library(lisaClust)
+```
+
+## Loading the data
+
+```{r}
+BPPARAM <- simpleSeg:::generateBPParam(cores = 40)
+```
+
+First, let's talk about files. When we're working with IMC images, we
+normally have each image as a folder containing a number of TIFF images,
+each one being an image for a specific marker/channel. We'll want to
+specify the directory that contains all of these folders, and then feed
+that into the `loadImages()` function.
+
+```{r}
+pathToImages <- "/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/Ferguson_Images"
+
+# Store images in a CytoImageList on_disk as h5 files to save memory.
+images <- cytomapper::loadImages(
+  pathToImages,
+  single_channel = TRUE,
+  on_disk = TRUE,
+  h5FilesPath = HDF5Array::getHDF5DumpDir(),
+  BPPARAM = BPPARAM
+)
+
+mcols(images) <- S4Vectors::DataFrame(imageID = names(images))
+```
+
+### Clean channel names
+
+As we're reading the image channels directly from the names of the TIFF
+image, often these channel names will need to be cleaned for ease of
+downstream processing.
+
+The channel names can be accessed from the `CytoImageList` object using
+the `channelNames()` function.
+
+```{r}
+
+cn <- channelNames(images) # Read in channel names
+head(cn)
+
+cn <- sub(".*_", "", cn) # Remove preceding letters
+cn <- sub(".ome", "", cn) # Remove the .ome
+head(cn)
+
+channelNames(images) <- cn # Reassign channel names
+
+```
+
+### Clean image names
+
+Similarly, the image names will be taken from the folder name containing
+the individual TIFF images for each channel. These will often also need
+to be cleaned.
+
+```{r}
+head(names(images))
+
+nam <- sapply(strsplit(names(images), "_"), `[`, 3)
+head(nam)
+
+names(images) <- nam # Reassigning image names
+mcols(images)[["imageID"]] <- nam # Reassigning image names
+```
+
+# SimpleSeg: Segment your cells!
+
+Our simpleSeg R package on <https://github.com/SydneyBioX/simpleSeg>
+provides a series of functions to generate simple segmentation masks of
+images. These functions leverage the functionality of the
+[EBImage](https://bioconductor.org/packages/release/bioc/vignettes/EBImage/inst/doc/EBImage-introduction.html)
+package on Bioconductor. For more flexibility when performing your
+segmentation in R we recommend learning to use the EBimage package. A
+key strength of the simpleSeg package is that we have coded multiple
+ways to perform some simple segmentation operations as well as
+incorporating multiple automatic procedures to optimise some key
+parameters when these aren't specified.
+
+## Run simpleSeg
+
+If your images are stored in a `list` or `CytoImageList` they can be
+segmented with a simple call to `simpleSeg()`. To summarise,
+`simpleSeg()` is an R implementation of a simple segmentation technique
+which traces out the nuclei using a specified channel using `nucleus`
+then dilates around the traced nuclei by a specified amount using
+`discSize`. The nucleus can be traced out using either one specified
+channel, or by using the principal components of all channels most
+correlated to the specified nuclear channel by setting `pca = TRUE`.
+
+In the particular example below, we have asked `simpleSeg` to do the
+following:
+
+-   By setting `nucleus = c("HH3")`, we've asked simpleSeg to trace out
+    the nuclei signal in the images using the HH3 channel.
+-   By setting `pca = TRUE`, simpleSeg segments out the nuclei mask
+    using a principal component analysis of all channels and using the
+    principal components most aligned with the nuclei channel, in this
+    case, HH3.
+-   By setting `cellBody = "dilate"`, simpleSeg uses a dilation strategy
+    of segmentation, expanding out from the nucleus by a specified
+    `discSize`.
+-   By setting `discSize = 3`, simpleSeg dilates out from the nucleus by
+    3 pixels.
+-   By setting `sizeSelection = 20`, simpleSeg ensures that only cells
+    with a size greater than 20 pixels will be used.
+-   By setting `transform = "sqrt"`, simpleSeg square root transforms
+    each of the channels prior to segmentation.
+-   By setting `tissue = c("panCK", "CD45", "HH3")`, we specify a tissue
+    mask which simpleSeg uses, filtering out all background noise
+    outside the tissue mask. This is important as these are tumour
+    cores, wand hence circular, so we'd want to ignore background noise
+    which happens outside of the tumour core.
+
+There are many other parameters that can be specified in simpleSeg
+(`smooth`, `watershed`, `tolerance`, and `ext`), and we encourage the
+user to select the best parameters which suit their biological context.
+
+```{r}
+masks <- simpleSeg(images,
+                   nucleus = c("HH3"),
+                   pca = TRUE,
+                   cellBody = "dilate",
+                   discSize = 3,
+                   sizeSelection = 20,
+                   transform = "sqrt",
+                   tissue = c("panCK", "CD45", "HH3"),
+                   cores = nCores
+                   )
+```
+
+Try segmenting yourself! I've provided a zip folder containing 1 image - i.e. a single folder of 36 channels for you to play around with the parameters and see what you change.
+
+```{r, eval = FALSE}
+# Code to load in a single image
+pathToSingleImage <- "/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/Ferguson_Images/ROI001_ROI 01_F3_SP16-001550_1E/"
+
+# Store images in a CytoImageList on_disk as h5 files to save memory.
+singleImage <- cytomapper::loadImages(
+  pathToSingleImage,
+  single_channel = TRUE,
+  on_disk = TRUE,
+  h5FilesPath = HDF5Array::getHDF5DumpDir(),
+  BPPARAM = BPPARAM
+)
+
+mcols(singleImage) <- S4Vectors::DataFrame(imageID = names(singleImage))
+```
+
+Play around with these parameters!
+
+```{r, eval = FALSE}
+# Write your own code!!!
+singleMasks <- simpleSeg(singleImage,
+                   nucleus = c("HH3"),
+                   pca = TRUE,
+                   cellBody = "dilate", # Maybe change me?
+                   discSize = 3, # Change me!
+                   sizeSelection = 20, # Change me!
+                   transform = "sqrt", # Change me!
+                   tissue = c("panCK", "CD45", "HH3"),
+                   cores = nCores
+                   )
+
+plotPixels(image = singleImage["F3"], 
+           mask = singleMasks["F3"],
+           img_id = "imageID", 
+           colour_by = c("HH3"), 
+           display = "single",
+           colour = list(HH3 = c("black","blue")),
+           legend = NULL,
+           bcg = list(
+             HH3 = c(1, 1, 2)
+           ))
+
 ```
 
 
+## Visualise outlines
 
+The `plotPixels()` function in `cytomapper` makes it easy to overlay the
+mask on top of the nucleus intensity marker to see how well our
+segmentation process has performed. Here we can see that the
+segmentation appears to be performing reasonably.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+```{r}
+plotPixels(image = images["F3"], 
+           mask = masks["F3"],
+           img_id = "imageID", 
+           colour_by = c("HH3", "CD31", "podoplanin"), 
+           display = "single",
+           colour = list(HH3 = c("black","blue"),
+                         CD31 = c("black", "red"),
+                         podoplanin = c("black", "green") ),
+           legend = NULL,
+           bcg = list(
+             HH3 = c(1, 1, 2),
+             CD31 = c(0, 1, 2),
+             podoplanin = c(0, 1, 1.5)
+           ))
+```
 
 
 
