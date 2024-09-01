@@ -74,8 +74,8 @@ will be using in this workshop. This will take some time to install, and
 you may encounter errors when you try to run this code, depending on
 what packages you may already have installed.
 
-```{r}
-BiocManager::install(c("cytomapper", "scater", "tidySingleCellExperiment", "SpatialExperiment", "simpleSeg", "FuseSOM", "spicyR", "lisaClust", "tidySingleCellExperiment", "SpatialExperiment"))
+```{r, eval=FALSE}
+BiocManager::install(c("cytomapper", "scater", "tidySingleCellExperiment", "SpatialExperiment", "simpleSeg", "FuseSOM", "spicyR", "lisaClust"))
 ```
 
 ### Prerequisite packages
@@ -95,6 +95,8 @@ library(SpatialExperiment)
 
 library(dplyr)
 library(ggplot2)
+
+theme_set(theme_classic())
 ```
 
 ### Our packages.
@@ -115,12 +117,17 @@ These are:
 -   [lisaClust](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
     For identifying consistent spatial organisation (regions) of cell
     types.
+    
+-   [ClassifyR](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
+    For identifying consistent spatial organisation (regions) of cell
+    types.
 
 ```{r, message=FALSE, error=FALSE, warning=FALSE}
 library(simpleSeg)
 library(FuseSOM)
 library(spicyR)
 library(lisaClust)
+library(ClassifyR)
 ```
 
 ## Loading the data
@@ -381,7 +388,7 @@ colData(cells) <- cbind(colData(cells), clinicalData[cells$imageID, ])
 ```
 
 ```{r}
-load("/dskh/nobackup/alexq/spicyWorkflow/vignettes/spe_Ferguson_2022.rda")
+load("/dskh/nobackup/alexq/spicyWorkflow/vignettes/spe_Ferguson_2022_c.rda")
 ```
 
 # Normalising your cells
@@ -407,6 +414,7 @@ cells |>
   geom_density() + 
   theme(legend.position = "none")
 ```
+
 We can transform and normalise our data using the `normalizeCells` function. In the `normalizeCells()` function, we specify the following parameters.
 `transformation` is an optional argument which specifies the function to be applied to the data. We do not apply an arcsinh transformation here, as we already apply a square root transform in the `simpleSeg()` function.
 `method = c("trim99", "mean", PC1")` is an optional argument which specifies the normalisation method/s to be performed. Here, we:
@@ -448,13 +456,13 @@ Here we cluster using the `runFuseSOM` function. We specify the number of cluste
 
 ## Perform the clustering
 
-```{r FuseSOM}
+```{r FuseSOM, message=FALSE, warning=FALSE}
 # Set seed.
 set.seed(51773)
 
 ct_markers <- c("podoplanin", "CD13", "CD31",
                 "panCK", "CD3", "CD4", "CD8a",
-                "CD20", "CD68", "CD16", "CD14", "HLADR", "CD66a")
+                "CD20", "CD68", "CD16", "CD14", "CD66a")
 
 # Generate SOM and cluster cells into 10 groups
 cells <- runFuseSOM(
@@ -466,9 +474,9 @@ cells <- runFuseSOM(
 
 ```
 
-We can also observe how reasonable our choice of `k = 10` was, using the `estimateNumCluster()` and `optiPlot()` functions. Here we examine the Gap method, but others such as Silhouette and Within Cluster Distance are also available. We can see that there are elbow points in the gap statistic at `k = 7`, `k = 10`, and `k = 11`. We've specified `k = 10`, striking a good balance between the number of clusters and the gap statistic.
+We can also observe how reasonable our choice of `k = 10` was, using the `estimateNumCluster()` and `optiPlot()` functions. Here we examine the Gap method, but others such as Silhouette and Within Cluster Distance are also available.
 
-```{r}
+```{r, message=FALSE}
 cells <- estimateNumCluster(cells, kSeq = 2:30)
 optiPlot(cells, method = "gap")
 ```
@@ -499,14 +507,14 @@ cells <- cells |>
   mutate(cellType = case_when(
     clusters == "cluster_1" ~ "GC",
     clusters == "cluster_2" ~ "MC",
-    clusters == "cluster_3" ~ "SC",
+    clusters == "cluster_3" ~ "OI",
     clusters == "cluster_4" ~ "EP",
     clusters == "cluster_5" ~ "SC",
-    clusters == "cluster_6" ~ "TC_CD4",
-    clusters == "cluster_7" ~ "BC",
-    clusters == "cluster_8" ~ "EC",
-    clusters == "cluster_9" ~ "TC_CD8",
-    clusters == "cluster_10" ~ "DC"
+    clusters == "cluster_6" ~ "Undefined",
+    clusters == "cluster_7" ~ "EC",
+    clusters == "cluster_8" ~ "BC",
+    clusters == "cluster_9" ~ "TC_CD4",
+    clusters == "cluster_10" ~ "TC_CD8"
   ))
 ```
 
@@ -591,7 +599,7 @@ Put simply, spicyR uses the L-function to determine localisation or dispersion b
 
 Here, we quantify spatial relationships using a combination of three radii `Rs = c(20, 50, 100)` and mildly account for some global tissue structure using `sigma = 50`. Further information on how to optimise these parameters can be found in the [vignette](https://bioconductor.org/packages/release/bioc/vignettes/spicyR/inst/doc/spicyR.html) and the spicyR [paper](https://doi.org/10.1093/bioinformatics/btac268).
 
-```{r}
+```{r, message=FALSE}
 spicyTest <- spicy(cells,
                    condition = "group",
                    cellTypeCol = "cellType",
@@ -624,9 +632,9 @@ spicyBoxPlot(spicyTest,
 
 ## lisaClust: Determining Regions
 
-Our lisaClust package (https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html)[https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html] provides a series of functions to identify and visualise regions of tissue where spatial associations between cell-types is similar. This package can be used to provide a high-level summary of cell-type co-localisation in multiplexed imaging data that has been segmented at a single-cell resolution. Here we use the `lisaClust` function to clusters cells into 5 regions with distinct spatial ordering. 
+Our lisaClust package [https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html](https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html) provides a series of functions to identify and visualise regions of tissue where spatial associations between cell-types is similar. This package can be used to provide a high-level summary of cell-type co-localisation in multiplexed imaging data that has been segmented at a single-cell resolution. Here we use the `lisaClust` function to clusters cells into 5 regions with distinct spatial ordering. 
 
-```{r}
+```{r, warning=FALSE}
 set.seed(51773)
 
 # Cluster cells into spatial regions with similar composition.
@@ -645,7 +653,7 @@ We can try to interpret which spatial orderings the regions are quantifying usin
 
 ```{r, fig.height=5, fig.width=5}
 # Visualise the enrichment of each cell type in each region
-regionMap(cells, cellType = "cellType")
+regionMap(cells, cellType = "cellType", limit = c(0, 2))
 ```
 
 ### Visualise regions
@@ -671,7 +679,7 @@ hatchingPlot(
 )
 ```
 
-## Test for association with progression
+### Test for association with progression
 
 If needed, we can again quickly use the `colTest` function to test for associations between the proportions of the cells in each region and progression status using either Wilcoxon rank sum tests or t-tests.
 
@@ -688,12 +696,109 @@ testRegion <- colTest(
 testRegion
 ```
 
+```{r}
+reg <- getProp(cells, feature = "region")
+regionToUse <- rownames(testRegion)[1]
+
+reg |>
+  select(all_of(regionToUse)) |>
+  tibble::rownames_to_column("imageID") |>
+  left_join(as.data.frame(colData(cells)), by = "imageID") |>
+  ggplot(aes(x = group, y = .data[[regionToUse]], fill = group)) +
+  geom_boxplot()
+```
 
 
+# ClassifyR: Predicting Progressor vs Non-Progressor status 
+
+```{r}
+# Create list to store data.frames
+data <- list()
+
+# Add proportions of each cell type in each image
+data[["Proportions"]] <- getProp(cells, "cellType")
+
+# Add pair-wise associations
+spicyMat <- bind(spicyTest)
+spicyMat[is.na(spicyMat)] <- 0
+spicyMat <- spicyMat |>
+  select(!condition) |>
+  tibble::column_to_rownames("imageID")
+
+data[["SpicyR"]] <- spicyMat
+
+# Add proportions of each region in each image
+# to the list of dataframes.
+data[["LisaClust"]] <- getProp(cells, "region")
+
+```
 
 
+```{r}
+# Set seed
+set.seed(51773)
 
+# Preparing outcome vector
+outcome <- cells$group[!duplicated(cells$imageID)]
+names(outcome) <- cells$imageID[!duplicated(cells$imageID)]
 
+idx <- names(sample(outcome[outcome == "NP"], 14))
+outcome <- outcome[!names(outcome) %in% idx]
+
+data <- lapply(data, function(x) x[!rownames(x) %in% idx,])
+
+# Perform cross-validation of a random forest model
+# with 100 repeats of 5-fold cross-validation.
+cv <- crossValidate(
+  measurements = data,
+  outcome = outcome,
+  classifier = "randomForest",
+  nFolds = 5,
+  nRepeats = 50,
+  nCores = nCores
+)
+```
+
+## Visualise cross-validated prediction performance
+
+Here we use the `performancePlot` function to assess the AUC from each repeat of the 5-fold cross-validation. We see that the lisaClust regions appear to capture information which is predictive of progression status of the patients.
+
+```{r}
+# Calculate AUC for each cross-validation repeat and plot.
+performancePlot(
+  cv,
+  metric = "AUC",
+  characteristicsList = list(x = "Assay Name")
+)
+```
+
+```{r}
+library(grid)
+samplesMetricMap(cv)
+```
+
+```{r}
+set.seed(51773)
+
+cv <- crossValidate(
+  measurements = data,
+  outcome = outcome,
+  classifier = "randomForest",
+  nFolds = 5,
+  nRepeats = 50,
+  multiViewMethod = "merge",
+  nCores = nCores
+)
+
+performancePlot(
+  cv,
+  metric = "AUC",
+  characteristicsList = list(x = "Assay Name")
+)
+
+library(grid)
+samplesMetricMap(cv)
+```
 
 
 
