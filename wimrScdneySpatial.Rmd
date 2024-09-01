@@ -388,7 +388,7 @@ colData(cells) <- cbind(colData(cells), clinicalData[cells$imageID, ])
 ```
 
 ```{r}
-load("/dskh/nobackup/alexq/spicyWorkflow/vignettes/spe_Ferguson_2022_c.rda")
+load("spe_Ferguson_2022_c.rda")
 ```
 
 # Normalising your cells
@@ -560,10 +560,14 @@ scater::plotReducedDim(
 )
 ```
 
-
 # Downstream analyses: spicyR & lisaClust {.tabset .tabset-fade}
 
 ## Basic proportion analyses
+
+```{r}
+load("spe_Ferguson_2022_c2.rda")
+```
+
 
 The `colTest` function allows us to quickly test for associations between the proportions of the cell types and progression status using either Wilcoxon rank sum tests or t-tests. Here we see a p-value less than 0.05, but this does not equate to a small FDR.
 
