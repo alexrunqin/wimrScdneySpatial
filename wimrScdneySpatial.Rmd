@@ -18,7 +18,7 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
 
 chooseCRANmirror(graphics=FALSE, ind=1)
 ```
@@ -29,10 +29,14 @@ where we have a matrix of genes by cells, along with their x-y
 coordinates, whether that's from technologies such as PhenoCycler, IMC,
 Xenium, or MERRFISH.
 
-In this workshop, we'll be working through a head and neck squamous cell
+In this workshop, we'll be re-analysing a head and neck squamous cell
 carcinoma dataset provided by Angela Ferguson, and published in
 [Clinical Cancer
-Research](https://doi.org/10.1158/1078-0432.CCR-22-1332). We will aim to
+Research](https://doi.org/10.1158/1078-0432.CCR-22-1332).
+
+For some context, head and neck cutaneous squamous cell carcinomas (HNcSCC) are the second most common type of skin cancer. The majority of HNcSCC can be treated with surgery and good local control, but a subset of large tumours infiltrate subcutaneous tissue and are considered high risk for local recurrence and metastases. The key conclusion of this manuscript (amongst others) is that spatial information about cells and the immune environment can be used to predict primary tumour progression or metastases in patients. We will use our spicy workflow to reach a similar conclusion.
+
+We will aim to
 cover:
 
 -   Introduction to imaging data and how to store it in R
@@ -70,8 +74,8 @@ will be using in this workshop. This will take some time to install, and
 you may encounter errors when you try to run this code, depending on
 what packages you may already have installed.
 
-```{r}
-BiocManager::install(c("cytomapper", "scater", "tidySingleCellExperiment", "SpatialExperiment", "simpleSeg", "FuseSOM", "spicyR", "lisaClust", "tidySingleCellExperiment", "SpatialExperiment"))
+```{r, eval=FALSE}
+BiocManager::install(c("cytomapper", "scater", "tidySingleCellExperiment", "SpatialExperiment", "simpleSeg", "FuseSOM", "spicyR", "lisaClust"))
 ```
 
 ### Prerequisite packages
@@ -91,6 +95,8 @@ library(SpatialExperiment)
 
 library(dplyr)
 library(ggplot2)
+
+theme_set(theme_classic())
 ```
 
 ### Our packages.
@@ -111,18 +117,24 @@ These are:
 -   [lisaClust](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
     For identifying consistent spatial organisation (regions) of cell
     types.
+    
+-   [ClassifyR](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
+    For identifying consistent spatial organisation (regions) of cell
+    types.
 
 ```{r, message=FALSE, error=FALSE, warning=FALSE}
 library(simpleSeg)
 library(FuseSOM)
 library(spicyR)
 library(lisaClust)
+library(ClassifyR)
 ```
 
 ## Loading the data
 
 ```{r}
-BPPARAM <- simpleSeg:::generateBPParam(cores = 40)
+nCores = 40
+BPPARAM <- simpleSeg:::generateBPParam(cores = nCores)
 ```
 
 First, let's talk about files. When we're working with IMC images, we
@@ -184,7 +196,7 @@ names(images) <- nam # Reassigning image names
 mcols(images)[["imageID"]] <- nam # Reassigning image names
 ```
 
-# SimpleSeg: Segment your cells!
+# SimpleSeg: Segment (and normalise) your cells!
 
 Our simpleSeg R package on <https://github.com/SydneyBioX/simpleSeg>
 provides a series of functions to generate simple segmentation masks of
@@ -249,11 +261,13 @@ masks <- simpleSeg(images,
                    )
 ```
 
-Try segmenting yourself! I've provided a zip folder containing 1 image - i.e. a single folder of 36 channels for you to play around with the parameters and see what you change.
+Try segmenting yourself! I've provided a zip folder containing 1 image -
+i.e. a single folder of 36 channels for you to play around with the
+parameters and see what you change.
 
 ```{r, eval = FALSE}
 # Code to load in a single image
-pathToSingleImage <- "/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/Ferguson_Images/ROI001_ROI 01_F3_SP16-001550_1E/"
+pathToSingleImage <- "/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/Ferguson_Images/ROI001_ROI 01_F3_SP16-001550_1E"
 
 # Store images in a CytoImageList on_disk as h5 files to save memory.
 singleImage <- cytomapper::loadImages(
@@ -265,6 +279,16 @@ singleImage <- cytomapper::loadImages(
 )
 
 mcols(singleImage) <- S4Vectors::DataFrame(imageID = names(singleImage))
+
+cn <- channelNames(singleImage) # Read in channel names
+cn <- sub(".*_", "", cn) # Remove preceding letters
+cn <- sub(".ome", "", cn) # Remove the .ome
+channelNames(singleImage) <- cn # Reassign channel names
+
+nam <- sapply(strsplit(names(singleImage), "_"), `[`, 3)
+names(singleImage) <- nam # Reassigning image names
+mcols(singleImage)[["imageID"]] <- nam # Reassigning image names
+
 ```
 
 Play around with these parameters!
@@ -278,8 +302,7 @@ singleMasks <- simpleSeg(singleImage,
                    discSize = 3, # Change me!
                    sizeSelection = 20, # Change me!
                    transform = "sqrt", # Change me!
-                   tissue = c("panCK", "CD45", "HH3"),
-                   cores = nCores
+                   tissue = c("panCK", "CD45", "HH3")
                    )
 
 plotPixels(image = singleImage["F3"], 
@@ -294,7 +317,6 @@ plotPixels(image = singleImage["F3"],
            ))
 
 ```
-
 
 ## Visualise outlines
 
@@ -319,6 +341,471 @@ plotPixels(image = images["F3"],
              podoplanin = c(0, 1, 1.5)
            ))
 ```
+
+## Summarise cell features.
+
+In order to characterise the phenotypes of each of the segmented cells,
+`measureObjects()` from `cytomapper` will calculate the average
+intensity of each channel within each cell as well as a few
+morphological features. By default, the `measureObjects()` function will
+return a `SingleCellExperiment` object, where the channel intensities
+are stored in the `counts` assay and the spatial location of each cell
+is stored in `colData` in the `m.cx` and `m.cy` columns.
+
+However, you can also specify `measureObjects()` to return a
+`SpatialExperiment` object by specifying `return_as = "spe"`. As a
+`SpatialExperiment` object, the spatial location of each cell is stored
+in the `spatialCoords` slot, as `m.cx` and `m.cy`, which simplifies
+plotting. In this demonstration, we will return a `SpatialExperiment`
+object.
+
+```{r}
+# Summarise the expression of each marker in each cell
+cells <- cytomapper::measureObjects(masks,
+                                    images,
+                                    img_id = "imageID",
+                                    return_as = "spe",
+                                    BPPARAM = BPPARAM)
+
+spatialCoordsNames(cells) <- c("x", "y")
+```
+
+## Load the clinical data
+
+To associate features in our image with disease progression, it is
+important to read in information which links image identifiers to their
+progression status. We will do this here, making sure that our `imageID`
+match.
+
+```{r}
+clinicalData <- read.csv("/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/clinicalData_TMA1_2021_AF.csv")
+
+rownames(clinicalData) <- clinicalData$imageID
+clinicalData <- clinicalData[names(images), ]
+
+# Put clinical data into SingleCellExperiment object
+colData(cells) <- cbind(colData(cells), clinicalData[cells$imageID, ])
+```
+
+```{r}
+load("spe_Ferguson_2022_c.rda")
+```
+
+# Normalising your cells
+
+Normalisation is an extremely important step of any workflow, and we
+should always first visualise our marker intensities to determine of
+they require some sort of transformation or normalisation.
+
+This reasons for normalisation are two-fold:
+
+1.  The intensities of images are often highly skewed, preventing any
+    meaningful downstream analysis.
+2.  The intensities across different images are often different, meaning
+    that what is considered "positive" can be different across images.
+
+Let's take a look at these effects in our dataset:
+
+```{r, fig.width=5, fig.height=5}
+# Plot densities of CD3 for each image.
+cells |> 
+  join_features(features = rownames(cells), shape = "wide", assay = "counts") |> 
+  ggplot(aes(x = CD3, colour = imageID)) + 
+  geom_density() + 
+  theme(legend.position = "none")
+```
+
+We can transform and normalise our data using the `normalizeCells` function. In the `normalizeCells()` function, we specify the following parameters.
+`transformation` is an optional argument which specifies the function to be applied to the data. We do not apply an arcsinh transformation here, as we already apply a square root transform in the `simpleSeg()` function.
+`method = c("trim99", "mean", PC1")` is an optional argument which specifies the normalisation method/s to be performed. Here, we:
+1) Trim the 99th percentile
+2) Divide by the mean
+3) Remove the 1st principal component
+`assayIn = "counts"` is a required argument which specifies what the assay you'll be taking the intensity data from is named. In our context, this is called `counts`.
+
+This modified data is then stored in the `norm` assay by default. We can see that this normalised data appears more bimodal, not perfectly, but likely to a sufficient degree for clustering, as we can at least observe a clear CD3+ peak at 1.00, and a CD3- peak at around 0.3.
+
+```{r, fig.width=5, fig.height=5}
+# Leave out the nuclei markers from our normalisation process. 
+useMarkers <- rownames(cells)[!rownames(cells) %in% c("DNA1", "DNA2", "HH3")]
+
+# Transform and normalise the marker expression of each cell type.
+cells <- normalizeCells(cells,
+                        markers = useMarkers,
+                        transformation = NULL,
+                        method = c("trim99", "mean", "PC1"),
+                        assayIn = "counts",
+                        cores = nCores
+)
+
+# Plot densities of CD3 for each image
+cells |> 
+  join_features(features = rownames(cells), shape = "wide", assay = "norm") |> 
+  ggplot(aes(x = CD3, colour = imageID)) + 
+  geom_density() + 
+  theme(legend.position = "none")
+```
+
+# FuseSOM: Cluster your cells!
+
+We can appreciate from the UMAP that there is a division of clusters, most likely representing different cell types. We next aim to empirically distinguish each cluster using our FuseSOM package for clustering.
+
+Our FuseSOM R package can be found on bioconductor at [https://www.bioconductor.org/packages/release/bioc/html/FuseSOM.html](https://www.bioconductor.org/packages/release/bioc/html/FuseSOM.html), and provides a pipeline for the clustering of highly multiplexed in situ imaging cytometry assays. This pipeline uses the Self Organising Map architecture coupled with Multiview hierarchical clustering and provides functions for the estimation of the number of clusters.
+
+Here we cluster using the `runFuseSOM` function. We specify the number of clusters to identify to be `numClusters = 10`. We also specify a set of cell-type specific markers to use, as we want our clusters to be distinct based off cell type markers, rather than markers which might pick up a transitioning cell state.
+
+## Perform the clustering
+
+```{r FuseSOM, message=FALSE, warning=FALSE}
+# Set seed.
+set.seed(51773)
+
+ct_markers <- c("podoplanin", "CD13", "CD31",
+                "panCK", "CD3", "CD4", "CD8a",
+                "CD20", "CD68", "CD16", "CD14", "CD66a")
+
+# Generate SOM and cluster cells into 10 groups
+cells <- runFuseSOM(
+  cells,
+  markers = ct_markers,
+  assay = "norm",
+  numClusters = 10
+)
+
+```
+
+We can also observe how reasonable our choice of `k = 10` was, using the `estimateNumCluster()` and `optiPlot()` functions. Here we examine the Gap method, but others such as Silhouette and Within Cluster Distance are also available.
+
+```{r, message=FALSE}
+cells <- estimateNumCluster(cells, kSeq = 2:30)
+optiPlot(cells, method = "gap")
+```
+
+## Attempt to interpret the phenotype of each cluster
+
+We can begin the process of understanding what each of these cell clusters are by using the `plotGroupedHeatmap` function from `scater`. At the least, here we can see we capture all the major immune populations that we expect to see, including the CD4 and CD8 T cells, the CD20+ B cells, the CD68+ myeloid populations, and the CD66+ granulocytes.
+
+```{r}
+# Visualise marker expression in each cluster.
+scater::plotGroupedHeatmap(
+  cells,
+  features = ct_markers,
+  group = "clusters",
+  exprs_values = "norm",
+  center = TRUE,
+  scale = TRUE,
+  zlim = c(-3, 3),
+  cluster_rows = FALSE,
+  block = "clusters"
+)
+```
+
+We can then apply our labels to these cell types.
+
+```{r}
+cells <- cells |>
+  mutate(cellType = case_when(
+    clusters == "cluster_1" ~ "GC",
+    clusters == "cluster_2" ~ "MC",
+    clusters == "cluster_3" ~ "OI",
+    clusters == "cluster_4" ~ "EP",
+    clusters == "cluster_5" ~ "SC",
+    clusters == "cluster_6" ~ "Undefined",
+    clusters == "cluster_7" ~ "EC",
+    clusters == "cluster_8" ~ "BC",
+    clusters == "cluster_9" ~ "TC_CD4",
+    clusters == "cluster_10" ~ "TC_CD8"
+  ))
+```
+
+We might also be interested in how these clusters are distributed on the images themselves. Here we examine the distribution of clusters on image F3.
+
+```{r}
+reducedDim(cells, "spatialCoords") <- spatialCoords(cells)
+
+cells |> 
+  filter(imageID == "F3") |> 
+  plotReducedDim("spatialCoords", colour_by = "cellType")
+```
+
+## Check cluster frequencies
+
+We find it always useful to check the number of cells in each cluster. Here we can see that we have alot of squamous tumour cells and much fewer dendritic cells.
+
+```{r}
+cells$cellType |>
+  table() |>
+  sort()
+```
+
+Another very popular method of visualising our clusters is using a UMAP. This takes very long to run and will break your R if you try to interrupt it, so probably don't run this during the workshop.
+
+```{r}
+set.seed(51773)
+# Perform dimension reduction using UMAP.
+cells <- scater::runUMAP(
+  cells,
+  subset_row = ct_markers,
+  exprs_values = "norm",
+  name = "normUMAP"
+)
+
+someImages <- unique(cells$imageID)[c(1, 5, 10, 20, 30, 40)]
+
+# UMAP by imageID.
+scater::plotReducedDim(
+  cells[, cells$imageID %in% someImages],
+  dimred = "normUMAP",
+  colour_by = "cellType"
+)
+```
+
+# Downstream analyses: spicyR & lisaClust {.tabset .tabset-fade}
+
+## Basic proportion analyses
+
+```{r}
+load("spe_Ferguson_2022_c2.rda")
+```
+
+
+The `colTest` function allows us to quickly test for associations between the proportions of the cell types and progression status using either Wilcoxon rank sum tests or t-tests. Here we see a p-value less than 0.05, but this does not equate to a small FDR.
+
+```{r}
+# Perform simple student's t-tests on the columns of the proportion matrix.
+testProp <- colTest(cells, 
+                    condition = "group", 
+                    feature = "cellType",
+                    type = "ttest")
+
+head(testProp)
+```
+
+Let's examine one of these clusters using a boxplot.
+
+```{r}
+prop <- getProp(cells, feature = "cellType")
+clusterToUse <- rownames(testProp)[1]
+
+prop |>
+  select(all_of(clusterToUse)) |>
+  tibble::rownames_to_column("imageID") |>
+  left_join(as.data.frame(colData(cells)), by = "imageID") |>
+  ggplot(aes(x = group, y = .data[[clusterToUse]], fill = group)) +
+  geom_boxplot()
+```
+
+## spicyR: Cell Type Localisations
+
+Our spicyR package is available on bioconductor on [https://www.bioconductor.org/packages/devel/bioc/html/spicyR.html](https://www.bioconductor.org/packages/devel/bioc/html/spicyR.html) and provides a series of functions to aid in the analysis of both immunofluorescence and imaging mass cytometry data as well as other assays that can deeply phenotype individual cells and their spatial location. Here we use the `spicy` function to test for changes in the spatial relationships between pair-wise combinations of cells.
+
+Put simply, spicyR uses the L-function to determine localisation or dispersion between cell types. The L-function is an arbitrary measure of "closeness" between points, with greater values suggesting increased localisation, and lower values suggesting dispersion.
+
+Here, we quantify spatial relationships using a combination of three radii `Rs = c(20, 50, 100)` and mildly account for some global tissue structure using `sigma = 50`. Further information on how to optimise these parameters can be found in the [vignette](https://bioconductor.org/packages/release/bioc/vignettes/spicyR/inst/doc/spicyR.html) and the spicyR [paper](https://doi.org/10.1093/bioinformatics/btac268).
+
+```{r, message=FALSE}
+spicyTest <- spicy(cells,
+                   condition = "group",
+                   cellTypeCol = "cellType",
+                   imageIDCol = "imageID",
+                   Rs = 1:10*10,
+                   sigma = 50,
+                   BPPARAM = BPPARAM)
+
+topPairs(spicyTest, n = 10)
+
+```
+
+We can visualise these tests using `signifPlot` where we observe that cell type pairs appear to become less attractive (or avoid more) in the progression sample.
+
+```{r}
+# Visualise which relationships are changing the most.
+signifPlot(
+  spicyTest,
+  breaks = c(-1.5, 1.5, 0.5)
+)
+```
+
+`spicyR` also has functionality for plotting out individual pairwise relationships. We can first try look into whether the major tumour cell type localises with the major myeloid cell type, and whether this localisation affects progression vs non-progression of the tumour. 
+
+```{r}
+spicyBoxPlot(spicyTest, 
+             from = "SC", 
+             to = "GC")
+```
+
+## lisaClust: Determining Regions
+
+Our lisaClust package [https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html](https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html) provides a series of functions to identify and visualise regions of tissue where spatial associations between cell-types is similar. This package can be used to provide a high-level summary of cell-type co-localisation in multiplexed imaging data that has been segmented at a single-cell resolution. Here we use the `lisaClust` function to clusters cells into 5 regions with distinct spatial ordering. 
+
+```{r, warning=FALSE}
+set.seed(51773)
+
+# Cluster cells into spatial regions with similar composition.
+cells <- lisaClust(
+  cells,
+  k = 4,
+  sigma = 50,
+  cellType = "cellType",
+  BPPARAM = BPPARAM
+)
+```
+
+### Region - cell type enrichment heatmap
+
+We can try to interpret which spatial orderings the regions are quantifying using the `regionMap` function. This plots the frequency of each cell type in a region relative to what you would expect by chance.
+
+```{r, fig.height=5, fig.width=5}
+# Visualise the enrichment of each cell type in each region
+regionMap(cells, cellType = "cellType", limit = c(0, 2))
+```
+
+### Visualise regions
+
+By default, these identified regions are stored in the `regions` column in the `colData` of our object. We can quickly examine the spatial arrangement of these regions using `ggplot`.
+
+
+```{r, message=FALSE, warning=FALSE}
+cells |> 
+  filter(imageID == "F3") |> 
+  plotReducedDim("spatialCoords", colour_by = "region")
+```
+
+While much slower, we have also implemented a function for overlaying the region information as a hatching pattern so that the information can be viewed simultaneously with the cell type calls.
+
+```{r}
+# Use hatching to visualise regions and cell types.
+hatchingPlot(
+  cells,
+  useImages = "F3",
+  cellType = "cellType",
+  nbp = 300
+)
+```
+
+### Test for association with progression
+
+If needed, we can again quickly use the `colTest` function to test for associations between the proportions of the cells in each region and progression status using either Wilcoxon rank sum tests or t-tests.
+
+```{r}
+# Test if the proportion of each region is associated
+# with progression status.
+testRegion <- colTest(
+  cells,
+  feature = "region",
+  condition = "group",
+  type = "ttest"
+)
+
+testRegion
+```
+
+```{r}
+reg <- getProp(cells, feature = "region")
+regionToUse <- rownames(testRegion)[1]
+
+reg |>
+  select(all_of(regionToUse)) |>
+  tibble::rownames_to_column("imageID") |>
+  left_join(as.data.frame(colData(cells)), by = "imageID") |>
+  ggplot(aes(x = group, y = .data[[regionToUse]], fill = group)) +
+  geom_boxplot()
+```
+
+
+# ClassifyR: Predicting Progressor vs Non-Progressor status 
+
+```{r}
+# Create list to store data.frames
+data <- list()
+
+# Add proportions of each cell type in each image
+data[["Proportions"]] <- getProp(cells, "cellType")
+
+# Add pair-wise associations
+spicyMat <- bind(spicyTest)
+spicyMat[is.na(spicyMat)] <- 0
+spicyMat <- spicyMat |>
+  select(!condition) |>
+  tibble::column_to_rownames("imageID")
+
+data[["SpicyR"]] <- spicyMat
+
+# Add proportions of each region in each image
+# to the list of dataframes.
+data[["LisaClust"]] <- getProp(cells, "region")
+
+```
+
+
+```{r}
+# Set seed
+set.seed(51773)
+
+# Preparing outcome vector
+outcome <- cells$group[!duplicated(cells$imageID)]
+names(outcome) <- cells$imageID[!duplicated(cells$imageID)]
+
+idx <- names(sample(outcome[outcome == "NP"], 14))
+outcome <- outcome[!names(outcome) %in% idx]
+
+data <- lapply(data, function(x) x[!rownames(x) %in% idx,])
+
+# Perform cross-validation of a random forest model
+# with 100 repeats of 5-fold cross-validation.
+cv <- crossValidate(
+  measurements = data,
+  outcome = outcome,
+  classifier = "randomForest",
+  nFolds = 5,
+  nRepeats = 50,
+  nCores = nCores
+)
+```
+
+## Visualise cross-validated prediction performance
+
+Here we use the `performancePlot` function to assess the AUC from each repeat of the 5-fold cross-validation. We see that the lisaClust regions appear to capture information which is predictive of progression status of the patients.
+
+```{r}
+# Calculate AUC for each cross-validation repeat and plot.
+performancePlot(
+  cv,
+  metric = "AUC",
+  characteristicsList = list(x = "Assay Name")
+)
+```
+
+```{r}
+library(grid)
+samplesMetricMap(cv)
+```
+
+```{r}
+set.seed(51773)
+
+cv <- crossValidate(
+  measurements = data,
+  outcome = outcome,
+  classifier = "randomForest",
+  nFolds = 5,
+  nRepeats = 50,
+  multiViewMethod = "merge",
+  nCores = nCores
+)
+
+performancePlot(
+  cv,
+  metric = "AUC",
+  characteristicsList = list(x = "Assay Name")
+)
+
+library(grid)
+samplesMetricMap(cv)
+```
+
+
+
 
 
 
