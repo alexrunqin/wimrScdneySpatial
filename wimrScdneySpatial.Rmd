@@ -590,7 +590,7 @@ clusterToUse <- rownames(testProp)[1]
 prop |>
   select(all_of(clusterToUse)) |>
   tibble::rownames_to_column("imageID") |>
-  left_join(as.data.frame(colData(cells)), by = "imageID") |>
+  left_join(as.data.frame(colData(cells))[!duplicated(cells$imageID),], by = "imageID") |>
   ggplot(aes(x = group, y = .data[[clusterToUse]], fill = group)) +
   geom_boxplot()
 ```
@@ -799,9 +799,6 @@ performancePlot(
   metric = "AUC",
   characteristicsList = list(x = "Assay Name")
 )
-
-library(grid)
-samplesMetricMap(cv)
 ```
 
 
