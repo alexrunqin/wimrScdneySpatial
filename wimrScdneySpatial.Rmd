@@ -34,10 +34,17 @@ carcinoma dataset provided by Angela Ferguson, and published in
 [Clinical Cancer
 Research](https://doi.org/10.1158/1078-0432.CCR-22-1332).
 
-For some context, head and neck cutaneous squamous cell carcinomas (HNcSCC) are the second most common type of skin cancer. The majority of HNcSCC can be treated with surgery and good local control, but a subset of large tumours infiltrate subcutaneous tissue and are considered high risk for local recurrence and metastases. The key conclusion of this manuscript (amongst others) is that spatial information about cells and the immune environment can be used to predict primary tumour progression or metastases in patients. We will use our spicy workflow to reach a similar conclusion.
+For some context, head and neck cutaneous squamous cell carcinomas
+(HNcSCC) are the second most common type of skin cancer. The majority of
+HNcSCC can be treated with surgery and good local control, but a subset
+of large tumours infiltrate subcutaneous tissue and are considered high
+risk for local recurrence and metastases. The key conclusion of this
+manuscript (amongst others) is that spatial information about cells and
+the immune environment can be used to predict primary tumour progression
+or metastases in patients. We will use our spicy workflow to reach a
+similar conclusion.
 
-We will aim to
-cover:
+We will aim to cover:
 
 -   Introduction to imaging data and how to store it in R
 
@@ -117,7 +124,7 @@ These are:
 -   [lisaClust](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
     For identifying consistent spatial organisation (regions) of cell
     types.
-    
+
 -   [ClassifyR](https://bioconductor.org/packages/release/bioc/vignettes/lisaClust/inst/doc/lisaClust.html):
     For identifying consistent spatial organisation (regions) of cell
     types.
@@ -267,15 +274,14 @@ parameters and see what you change.
 
 ```{r, eval = FALSE}
 # Code to load in a single image
-pathToSingleImage <- "/dskh/nobackup/alexq/spicyWorkflow/inst/extdata/Ferguson_Images/ROI001_ROI 01_F3_SP16-001550_1E"
+pathToSingleImage <- "ROI001_ROI 01_F3_SP16-001550_1E"
 
 # Store images in a CytoImageList on_disk as h5 files to save memory.
 singleImage <- cytomapper::loadImages(
   pathToSingleImage,
   single_channel = TRUE,
   on_disk = TRUE,
-  h5FilesPath = HDF5Array::getHDF5DumpDir(),
-  BPPARAM = BPPARAM
+  h5FilesPath = HDF5Array::getHDF5DumpDir()
 )
 
 mcols(singleImage) <- S4Vectors::DataFrame(imageID = names(singleImage))
@@ -415,15 +421,22 @@ cells |>
   theme(legend.position = "none")
 ```
 
-We can transform and normalise our data using the `normalizeCells` function. In the `normalizeCells()` function, we specify the following parameters.
-`transformation` is an optional argument which specifies the function to be applied to the data. We do not apply an arcsinh transformation here, as we already apply a square root transform in the `simpleSeg()` function.
-`method = c("trim99", "mean", PC1")` is an optional argument which specifies the normalisation method/s to be performed. Here, we:
-1) Trim the 99th percentile
-2) Divide by the mean
-3) Remove the 1st principal component
-`assayIn = "counts"` is a required argument which specifies what the assay you'll be taking the intensity data from is named. In our context, this is called `counts`.
+We can transform and normalise our data using the `normalizeCells`
+function. In the `normalizeCells()` function, we specify the following
+parameters. `transformation` is an optional argument which specifies the
+function to be applied to the data. We do not apply an arcsinh
+transformation here, as we already apply a square root transform in the
+`simpleSeg()` function. `method = c("trim99", "mean", PC1")` is an
+optional argument which specifies the normalisation method/s to be
+performed. Here, we: 1) Trim the 99th percentile 2) Divide by the mean
+3) Remove the 1st principal component `assayIn = "counts"` is a required
+argument which specifies what the assay you'll be taking the intensity
+data from is named. In our context, this is called `counts`.
 
-This modified data is then stored in the `norm` assay by default. We can see that this normalised data appears more bimodal, not perfectly, but likely to a sufficient degree for clustering, as we can at least observe a clear CD3+ peak at 1.00, and a CD3- peak at around 0.3.
+This modified data is then stored in the `norm` assay by default. We can
+see that this normalised data appears more bimodal, not perfectly, but
+likely to a sufficient degree for clustering, as we can at least observe
+a clear CD3+ peak at 1.00, and a CD3- peak at around 0.3.
 
 ```{r, fig.width=5, fig.height=5}
 # Leave out the nuclei markers from our normalisation process. 
@@ -448,11 +461,23 @@ cells |>
 
 # FuseSOM: Cluster your cells!
 
-We can appreciate from the UMAP that there is a division of clusters, most likely representing different cell types. We next aim to empirically distinguish each cluster using our FuseSOM package for clustering.
+We can appreciate from the UMAP that there is a division of clusters,
+most likely representing different cell types. We next aim to
+empirically distinguish each cluster using our FuseSOM package for
+clustering.
 
-Our FuseSOM R package can be found on bioconductor at [https://www.bioconductor.org/packages/release/bioc/html/FuseSOM.html](https://www.bioconductor.org/packages/release/bioc/html/FuseSOM.html), and provides a pipeline for the clustering of highly multiplexed in situ imaging cytometry assays. This pipeline uses the Self Organising Map architecture coupled with Multiview hierarchical clustering and provides functions for the estimation of the number of clusters.
+Our FuseSOM R package can be found on bioconductor at
+<https://www.bioconductor.org/packages/release/bioc/html/FuseSOM.html>,
+and provides a pipeline for the clustering of highly multiplexed in situ
+imaging cytometry assays. This pipeline uses the Self Organising Map
+architecture coupled with Multiview hierarchical clustering and provides
+functions for the estimation of the number of clusters.
 
-Here we cluster using the `runFuseSOM` function. We specify the number of clusters to identify to be `numClusters = 10`. We also specify a set of cell-type specific markers to use, as we want our clusters to be distinct based off cell type markers, rather than markers which might pick up a transitioning cell state.
+Here we cluster using the `runFuseSOM` function. We specify the number
+of clusters to identify to be `numClusters = 10`. We also specify a set
+of cell-type specific markers to use, as we want our clusters to be
+distinct based off cell type markers, rather than markers which might
+pick up a transitioning cell state.
 
 ## Perform the clustering
 
@@ -474,7 +499,10 @@ cells <- runFuseSOM(
 
 ```
 
-We can also observe how reasonable our choice of `k = 10` was, using the `estimateNumCluster()` and `optiPlot()` functions. Here we examine the Gap method, but others such as Silhouette and Within Cluster Distance are also available.
+We can also observe how reasonable our choice of `k = 10` was, using the
+`estimateNumCluster()` and `optiPlot()` functions. Here we examine the
+Gap method, but others such as Silhouette and Within Cluster Distance
+are also available.
 
 ```{r, message=FALSE}
 cells <- estimateNumCluster(cells, kSeq = 2:30)
@@ -483,7 +511,12 @@ optiPlot(cells, method = "gap")
 
 ## Attempt to interpret the phenotype of each cluster
 
-We can begin the process of understanding what each of these cell clusters are by using the `plotGroupedHeatmap` function from `scater`. At the least, here we can see we capture all the major immune populations that we expect to see, including the CD4 and CD8 T cells, the CD20+ B cells, the CD68+ myeloid populations, and the CD66+ granulocytes.
+We can begin the process of understanding what each of these cell
+clusters are by using the `plotGroupedHeatmap` function from `scater`.
+At the least, here we can see we capture all the major immune
+populations that we expect to see, including the CD4 and CD8 T cells,
+the CD20+ B cells, the CD68+ myeloid populations, and the CD66+
+granulocytes.
 
 ```{r}
 # Visualise marker expression in each cluster.
@@ -518,7 +551,9 @@ cells <- cells |>
   ))
 ```
 
-We might also be interested in how these clusters are distributed on the images themselves. Here we examine the distribution of clusters on image F3.
+We might also be interested in how these clusters are distributed on the
+images themselves. Here we examine the distribution of clusters on image
+F3.
 
 ```{r}
 reducedDim(cells, "spatialCoords") <- spatialCoords(cells)
@@ -530,7 +565,9 @@ cells |>
 
 ## Check cluster frequencies
 
-We find it always useful to check the number of cells in each cluster. Here we can see that we have alot of squamous tumour cells and much fewer dendritic cells.
+We find it always useful to check the number of cells in each cluster.
+Here we can see that we have alot of squamous tumour cells and much
+fewer dendritic cells.
 
 ```{r}
 cells$cellType |>
@@ -538,7 +575,9 @@ cells$cellType |>
   sort()
 ```
 
-Another very popular method of visualising our clusters is using a UMAP. This takes very long to run and will break your R if you try to interrupt it, so probably don't run this during the workshop.
+Another very popular method of visualising our clusters is using a UMAP.
+This takes very long to run and will break your R if you try to
+interrupt it, so probably don't run this during the workshop.
 
 ```{r}
 set.seed(51773)
@@ -568,8 +607,10 @@ scater::plotReducedDim(
 load("spe_Ferguson_2022_c2.rda")
 ```
 
-
-The `colTest` function allows us to quickly test for associations between the proportions of the cell types and progression status using either Wilcoxon rank sum tests or t-tests. Here we see a p-value less than 0.05, but this does not equate to a small FDR.
+The `colTest` function allows us to quickly test for associations
+between the proportions of the cell types and progression status using
+either Wilcoxon rank sum tests or t-tests. Here we see a p-value less
+than 0.05, but this does not equate to a small FDR.
 
 ```{r}
 # Perform simple student's t-tests on the columns of the proportion matrix.
@@ -597,11 +638,25 @@ prop |>
 
 ## spicyR: Cell Type Localisations
 
-Our spicyR package is available on bioconductor on [https://www.bioconductor.org/packages/devel/bioc/html/spicyR.html](https://www.bioconductor.org/packages/devel/bioc/html/spicyR.html) and provides a series of functions to aid in the analysis of both immunofluorescence and imaging mass cytometry data as well as other assays that can deeply phenotype individual cells and their spatial location. Here we use the `spicy` function to test for changes in the spatial relationships between pair-wise combinations of cells.
+Our spicyR package is available on bioconductor on
+<https://www.bioconductor.org/packages/devel/bioc/html/spicyR.html> and
+provides a series of functions to aid in the analysis of both
+immunofluorescence and imaging mass cytometry data as well as other
+assays that can deeply phenotype individual cells and their spatial
+location. Here we use the `spicy` function to test for changes in the
+spatial relationships between pair-wise combinations of cells.
 
-Put simply, spicyR uses the L-function to determine localisation or dispersion between cell types. The L-function is an arbitrary measure of "closeness" between points, with greater values suggesting increased localisation, and lower values suggesting dispersion.
+Put simply, spicyR uses the L-function to determine localisation or
+dispersion between cell types. The L-function is an arbitrary measure of
+"closeness" between points, with greater values suggesting increased
+localisation, and lower values suggesting dispersion.
 
-Here, we quantify spatial relationships using a combination of three radii `Rs = c(20, 50, 100)` and mildly account for some global tissue structure using `sigma = 50`. Further information on how to optimise these parameters can be found in the [vignette](https://bioconductor.org/packages/release/bioc/vignettes/spicyR/inst/doc/spicyR.html) and the spicyR [paper](https://doi.org/10.1093/bioinformatics/btac268).
+Here, we quantify spatial relationships using a combination of three
+radii `Rs = c(20, 50, 100)` and mildly account for some global tissue
+structure using `sigma = 50`. Further information on how to optimise
+these parameters can be found in the
+[vignette](https://bioconductor.org/packages/release/bioc/vignettes/spicyR/inst/doc/spicyR.html)
+and the spicyR [paper](https://doi.org/10.1093/bioinformatics/btac268).
 
 ```{r, message=FALSE}
 spicyTest <- spicy(cells,
@@ -616,7 +671,9 @@ topPairs(spicyTest, n = 10)
 
 ```
 
-We can visualise these tests using `signifPlot` where we observe that cell type pairs appear to become less attractive (or avoid more) in the progression sample.
+We can visualise these tests using `signifPlot` where we observe that
+cell type pairs appear to become less attractive (or avoid more) in the
+progression sample.
 
 ```{r}
 # Visualise which relationships are changing the most.
@@ -626,7 +683,10 @@ signifPlot(
 )
 ```
 
-`spicyR` also has functionality for plotting out individual pairwise relationships. We can first try look into whether the major tumour cell type localises with the major myeloid cell type, and whether this localisation affects progression vs non-progression of the tumour. 
+`spicyR` also has functionality for plotting out individual pairwise
+relationships. We can first try look into whether the major tumour cell
+type localises with the major myeloid cell type, and whether this
+localisation affects progression vs non-progression of the tumour.
 
 ```{r}
 spicyBoxPlot(spicyTest, 
@@ -636,7 +696,14 @@ spicyBoxPlot(spicyTest,
 
 ## lisaClust: Determining Regions
 
-Our lisaClust package [https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html](https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html) provides a series of functions to identify and visualise regions of tissue where spatial associations between cell-types is similar. This package can be used to provide a high-level summary of cell-type co-localisation in multiplexed imaging data that has been segmented at a single-cell resolution. Here we use the `lisaClust` function to clusters cells into 5 regions with distinct spatial ordering. 
+Our lisaClust package
+<https://www.bioconductor.org/packages/devel/bioc/html/lisaClust.html>
+provides a series of functions to identify and visualise regions of
+tissue where spatial associations between cell-types is similar. This
+package can be used to provide a high-level summary of cell-type
+co-localisation in multiplexed imaging data that has been segmented at a
+single-cell resolution. Here we use the `lisaClust` function to clusters
+cells into 5 regions with distinct spatial ordering.
 
 ```{r, warning=FALSE}
 set.seed(51773)
@@ -653,7 +720,9 @@ cells <- lisaClust(
 
 ### Region - cell type enrichment heatmap
 
-We can try to interpret which spatial orderings the regions are quantifying using the `regionMap` function. This plots the frequency of each cell type in a region relative to what you would expect by chance.
+We can try to interpret which spatial orderings the regions are
+quantifying using the `regionMap` function. This plots the frequency of
+each cell type in a region relative to what you would expect by chance.
 
 ```{r, fig.height=5, fig.width=5}
 # Visualise the enrichment of each cell type in each region
@@ -662,8 +731,9 @@ regionMap(cells, cellType = "cellType", limit = c(0, 2))
 
 ### Visualise regions
 
-By default, these identified regions are stored in the `regions` column in the `colData` of our object. We can quickly examine the spatial arrangement of these regions using `ggplot`.
-
+By default, these identified regions are stored in the `regions` column
+in the `colData` of our object. We can quickly examine the spatial
+arrangement of these regions using `ggplot`.
 
 ```{r, message=FALSE, warning=FALSE}
 cells |> 
@@ -671,7 +741,9 @@ cells |>
   plotReducedDim("spatialCoords", colour_by = "region")
 ```
 
-While much slower, we have also implemented a function for overlaying the region information as a hatching pattern so that the information can be viewed simultaneously with the cell type calls.
+While much slower, we have also implemented a function for overlaying
+the region information as a hatching pattern so that the information can
+be viewed simultaneously with the cell type calls.
 
 ```{r}
 # Use hatching to visualise regions and cell types.
@@ -685,7 +757,9 @@ hatchingPlot(
 
 ### Test for association with progression
 
-If needed, we can again quickly use the `colTest` function to test for associations between the proportions of the cells in each region and progression status using either Wilcoxon rank sum tests or t-tests.
+If needed, we can again quickly use the `colTest` function to test for
+associations between the proportions of the cells in each region and
+progression status using either Wilcoxon rank sum tests or t-tests.
 
 ```{r}
 # Test if the proportion of each region is associated
@@ -712,8 +786,7 @@ reg |>
   geom_boxplot()
 ```
 
-
-# ClassifyR: Predicting Progressor vs Non-Progressor status 
+# ClassifyR: Predicting Progressor vs Non-Progressor status
 
 ```{r}
 # Create list to store data.frames
@@ -736,7 +809,6 @@ data[["SpicyR"]] <- spicyMat
 data[["LisaClust"]] <- getProp(cells, "region")
 
 ```
-
 
 ```{r}
 # Set seed
@@ -765,7 +837,10 @@ cv <- crossValidate(
 
 ## Visualise cross-validated prediction performance
 
-Here we use the `performancePlot` function to assess the AUC from each repeat of the 5-fold cross-validation. We see that the lisaClust regions appear to capture information which is predictive of progression status of the patients.
+Here we use the `performancePlot` function to assess the AUC from each
+repeat of the 5-fold cross-validation. We see that the lisaClust regions
+appear to capture information which is predictive of progression status
+of the patients.
 
 ```{r}
 # Calculate AUC for each cross-validation repeat and plot.
@@ -800,31 +875,3 @@ performancePlot(
   characteristicsList = list(x = "Assay Name")
 )
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
